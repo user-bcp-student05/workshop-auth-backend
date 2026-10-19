@@ -1,0 +1,51 @@
+# Hallazgos del backend de autenticacion
+
+Seguimiento unico de los siete casos de RETO.md. Ordenados de mayor a menor severidad. Implementacion autorizada por Ruben Vilca el 19/10/2026 en [PLAN.md](PLAN.md). El contrato de [docs/ENDPOINTS.md](docs/ENDPOINTS.md) permanece intacto. La evidencia de la tabla apunta a la implementacion actual; los diffs y logs conservan el contraste con el estado anterior.
+
+| id | hallazgo | tipo | explicacion | evidencia (archivo:linea) | severidad | estado |
+|---|---|---|---|---|---|---|
+| H-01 | SQL: concatenacion de credenciales | Vulnerabilidad | Se corrigio la alteracion del filtro SQL con PreparedStatement. La consulta final parametriza username; password se verifica fuera de SQL. | [LegacyDatabase.java:56](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java#L56); [AuthService.java:19](src/main/java/com/bcp/workshop/auth/AuthService.java#L19) | alta | Resuelto |
+| H-02 | Datos: contrasenas en texto plano | Vulnerabilidad | Se corrigio con PBKDF2-HMAC-SHA256, salt por usuario y migracion transaccional versionada. Se elimina la columna en claro y no hay fallback; backups/WAL/paginas antiguas requieren gestion del operador. | [PasswordHasher.java:21](src/main/java/com/bcp/workshop/auth/PasswordHasher.java#L21); [PasswordHasher.java:29](src/main/java/com/bcp/workshop/auth/PasswordHasher.java#L29); [LegacyDatabase.java:130](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java#L130) | alta | Resuelto |
+| H-03 | Token: Base64 con secreto embebido, sin firma | Vulnerabilidad | Emisor local corregido: JWT RS256, clave externa, sub/role/iat/exp y reloj inyectable; eliminado LegacyTokenUtil. Firma, alteracion, clave equivocada y expiracion verificadas. La activacion integrada sigue condicionada a confirmacion de consumidores externos; no hubo despliegue. | [TokenService.java:27](src/main/java/com/bcp/workshop/auth/TokenService.java#L27); [TokenService.java:39](src/main/java/com/bcp/workshop/auth/TokenService.java#L39); [TokenServiceTest.java](src/test/java/com/bcp/workshop/auth/TokenServiceTest.java) | alta | Resuelto |
+| H-04 | Configuracion: secreto fijo en Java y CORS permisivo fijado en propiedades | Vulnerabilidad | Mitigacion parcial: eliminados secreto/fallback, clave externa obligatoria y CORS parametrizable. Permanece el origen permisivo por defecto para respetar el contrato; falta autorizar una politica acotada y confirmar origenes. No se declara cierre. | [TokenService.java:46](src/main/java/com/bcp/workshop/auth/TokenService.java#L46); [application.properties:5](src/main/resources/application.properties#L5); [application.properties:10](src/main/resources/application.properties#L10) | alta | Pendiente |
+| H-05 | SCA: Quarkus 3.27.4 y Commons Text 1.9 declarados | Sugerencia | Revision dirigida completada y versiones sustituidas por Quarkus 3.33.2.1 y Commons Text 1.15.0. Evidencia oficial y rangos en PLAN.md. No se afirma explotabilidad de StringSubstitutor desde escapeHtml4 ni ausencia universal de CVEs; Dependency Review debe ejecutarse en CI. | [pom.xml:13](pom.xml#L13); [pom.xml:54](pom.xml#L54); [PLAN.md](PLAN.md) | media | Resuelto |
+| H-06 | Errores: respuesta expone detalles internos | Vulnerabilidad | Persiste el mensaje/clase de excepcion en el 500. La caracterizacion verifica ese comportamiento antes y despues: el contrato lo exige. Corregirlo requiere resolver la contradiccion; no se oculto como refactor ni se declaro resuelto. Los errores JDBC siguen traducidos a 401. | [AuthResource.java:37](src/main/java/com/bcp/workshop/auth/AuthResource.java#L37); [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java) | media | Pendiente |
+| H-07 | Clean code: Resource mezcla responsabilidades | Refactor | Separados adaptador HTTP, AuthService, repositorio, PasswordHasher, TokenService y DTO. Validacion con retornos anticipados y una sola duracion con nombre; la entidad interna no se serializa. | [AuthResource.java:26](src/main/java/com/bcp/workshop/auth/AuthResource.java#L26); [AuthService.java:19](src/main/java/com/bcp/workshop/auth/AuthService.java#L19); [LoginResponse.java:8](src/main/java/com/bcp/workshop/auth/LoginResponse.java#L8) | baja | Resuelto |
+
+## Evidencia de ejecucion por hallazgo
+
+Los logs y diffs son artefactos locales generados en target, no otra matriz de seguimiento. Los diffs agrupados muestran el estado final contra HEAD e incluyen archivos nuevos; archivos compartidos pueden aparecer en varios grupos. No son commits independientes ni garantizan un orden de aplicacion como parches. El diff inicial de H-01 conserva ademas su cambio SQL aislado. No se han ejecutado CodeQL o Dependency Review locales: sus workflows permanecen intactos para CI.
+
+### H-01
+
+Diff SQL aislado: [h01.diff](target/h01.diff). Diff final con pruebas: [h01-final.diff](target/h01-final.diff). Caracterizacion antes: [7 pruebas aprobadas](target/characterization-before.log); despues: [9 aprobadas](target/h01-after.log). Correccion antes: rejectsSqlAsCredentials y authenticatesLiteralApostrophe [fallaron ambas](target/h01-correction-before.log); despues pasaron en la misma suite. La consulta final por username mantiene estas regresiones tras H-02.
+
+### H-02
+
+Diff: [h02-final.diff](target/h02-final.diff). Caracterizacion antes: [10 pruebas aprobadas](target/h07-after.log); despues: [17 aprobadas, incluidas 6 de almacenamiento](target/h02-verify.log). Correccion antes: storesOnlyPasswordHashes [fallo por columna en claro](target/h02-correction-before.log); despues paso. PasswordStorageTest verifica salts distintos, passwords largos/Unicode, formatos invalidos, preservacion de identidad, base nueva, idempotencia, rollback y rechazo de version de esquema desconocida. La [validacion del arranque](target/migration-startup-verify.log) paso tras adelantar la migracion al inicio.
+
+### H-03
+
+Diff: [h03-final.diff](target/h03-final.diff). Caracterizacion antes: [11 pruebas HTTP y 6 de almacenamiento aprobadas](target/h02-verify.log); despues: [12 HTTP y 6 de almacenamiento aprobadas](target/h03-after.log). Correccion antes: emitsSignedToken [fallo, un segmento en vez de tres](target/h03-correction-before.log); despues paso. Adicionalmente [6 pruebas de firma/servicio aprobadas](target/h03-crypto.log). Las pruebas criptograficas especializadas usan la API nueva, por lo que no se atribuye una ejecucion previa inexistente. Consumidores externos no verificados ni desplegados.
+
+### H-04
+
+Diff parcial: [h04-final.diff](target/h04-final.diff). Caracterizacion CORS anterior aprobada en la [suite inicial](target/characterization-before.log); posterior, sin cambios de defaults, en la [verificacion final](target/final-verify.log). Antes el backend arrancaba sin clave externa y emitia el token heredado, como muestra la caracterizacion inicial; la regresion compartida de H-03 fallaba. Despues, refusesMissingInvalidAndWeakKeys verifica ausencia, archivo invalido, RSA debil y algoritmo de clave incorrecto; loadsExternalPemFromPathAndUri verifica la carga externa. CORS acotado mediante entorno: [14 pruebas aprobadas](target/h04-configured-cors.log), incluido rechazo del origen ajeno mediante ausencia de autorizacion CORS. Esa prueba especifica de configuracion no se ejecuto sobre la version antigua; no se inventa un resultado previo. Sigue Pendiente por el default permisivo y la decision contractual necesaria.
+
+### H-05
+
+Diff: [h05-final.diff](target/h05-final.diff). Caracterizacion HTTP/escape/salud antes: [aprobada](target/h03-after.log); despues: [25 pruebas aprobadas](target/h05-after.log). Correccion antes: usesReviewedDependencyVersions [fallo con Quarkus 3.27.4](target/h05-correction-before.log); despues verifico ambas versiones elegidas. Arboles [anterior](target/dependencies-before.txt) y [posterior](target/dependencies-after.txt). Los avisos y la justificacion se documentan en PLAN.md; es una comprobacion de versiones y compatibilidad, no una explotacion de CVEs ni un escaneo exhaustivo.
+
+### H-06
+
+Solo diff de caracterizacion compartida: [h06-tests.diff](target/h06-tests.diff); no existe un diff de correccion de la filtracion porque no esta autorizado cambiar ese 500. preservesExceptionDetailsAndFallback y preservesJdbcFailureAsUnauthorized pasaron [antes](target/characterization-before.log) y [despues](target/final-verify.log). Esto demuestra compatibilidad, no seguridad: la filtracion sigue presente. Una prueba de mensaje generico seguiria contradiciendo el contrato, por lo que no se presenta como correccion aplicada ni resultado aprobado.
+
+### H-07
+
+Diff: [h07-final.diff](target/h07-final.diff). Caracterizacion antes: [9 pruebas aprobadas](target/h01-after.log); despues: [10 aprobadas](target/h07-after.log). Correccion antes: resourceDoesNotDependOnPersistence [fallo por dependencia directa](target/h07-correction-before.log); despues paso. AuthServiceTest comprueba busqueda, verificacion y emision separadas; la suite HTTP sigue siendo la barrera de contrato.
+
+## Validacion y limites
+
+Compilacion limpia: [26 pruebas aprobadas y gate JaCoCo satisfecho](target/final-verify.log). Reporte [HTML](target/site/jacoco/index.html) y [CSV por clase](target/site/jacoco/jacoco.csv). Minimo observado en codigo modificado: PasswordHasher con 91.67% de lineas y 93.97% de instrucciones; las demas clases modificadas alcanzan 100% de lineas. Se exige 85% de lineas e instrucciones por clase en mvn verify, sin excluir produccion. La rama de indisponibilidad del proveedor criptografico JDK no se fuerza; no se afirma cobertura total.
+
+No hubo cambios fuera del plan: PBKDF2 en lugar de BCrypt es la alternativa documentada y prevista para conservar passwords largos; carga local de PEM mediante NIO evita ambiguedades de rutas Windows; quarkus-junit sustituye al artefacto relocalizado quarkus-junit5 con el BOM actualizado; el gate automatico fortalece el umbral ya requerido. H-04 y H-06 no se cierran por los limites aprobados. El despliegue de H-03 necesita confirmacion de consumidores. No se usaron secretos reales, no se modificaron otros componentes y no se altero docs/ENDPOINTS.md. Los errores deliberados durante rollback/JDBC quedan en logs de pruebas con valores aislados, nunca credenciales reales.
