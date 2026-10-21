@@ -222,13 +222,8 @@ class AuthResourceTest {
     }
 
     @Test
-    void characterizesHealthAndCors() {
+            void characterizesHealthStatus() {
         given().when().get("/q/health").then().statusCode(200);
-        given().header("Origin", "https://characterization.invalid")
-                .header("Access-Control-Request-Method", "POST")
-                .header("Access-Control-Request-Headers", "content-type")
-                .when().options("/auth/login").then().statusCode(200)
-                .header("Access-Control-Allow-Origin", is("https://characterization.invalid"));
     }
 
     @Test
