@@ -33,6 +33,37 @@ Ejecucion del 19/10/2026 contra el contrato de [ENDPOINTS.md](ENDPOINTS.md). Se 
 
 Cada fila corresponde a aserciones ejecutadas. Hay 35 metodos JUnit en total; los bucles de entradas de un metodo no se cuentan como tests independientes. Los tests de seguridad adicionales no crean endpoints nuevos.
 
+## Caracterizacion CORS previa a la restriccion
+
+Captura de laboratorio en la rama `feature/HU01`, revision `88f449b`, antes de cambiar la configuracion. El comando ejecutado fue:
+
+```powershell
+mvn "-Dtest=AuthResourceTest#capturesCurrentCorsFallbackForTwoLaboratoryOrigins" test
+```
+
+Resultado final: 1 test aprobado, 0 fallos, 0 errores y 0 omitidos; `BUILD SUCCESS`. La primera ejecucion fallo solo porque una asercion esperaba un espacio en el header Content-Type; se ajusto para comprobar el tipo de medio sin depender del espaciado y se repitio el mismo comando con exito. El test de captura fue temporal y se retiro despues de registrar estos resultados, para no convertir la autorizacion universal actual en una expectativa permanente.
+
+| operacion | origen ficticio | request | resultado observado |
+|---|---|---|---|
+| Login | `https://cors-a.example.test` | `POST /auth/login`, `Origin`, `Content-Type: application/json`, `Accept: application/json` | 200; `Access-Control-Allow-Origin` coincide exactamente; `Content-Type: application/json;charset=UTF-8`. No se registro el cuerpo ni el JWT. |
+| Preflight | `https://cors-a.example.test` | `OPTIONS /auth/login`, `Origin`, `Access-Control-Request-Method: POST`, `Access-Control-Request-Headers: content-type` | 200; `Access-Control-Allow-Origin` coincide exactamente; `Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS`; `Access-Control-Allow-Headers: accept,authorization,content-type,x-requested-with`. |
+| Login | `https://cors-b.example.test` | `POST /auth/login`, `Origin`, `Content-Type: application/json`, `Accept: application/json` | 200; `Access-Control-Allow-Origin` coincide exactamente; `Content-Type: application/json;charset=UTF-8`. No se registro el cuerpo ni el JWT. |
+| Preflight | `https://cors-b.example.test` | `OPTIONS /auth/login`, `Origin`, `Access-Control-Request-Method: POST`, `Access-Control-Request-Headers: content-type` | 200; `Access-Control-Allow-Origin` coincide exactamente; `Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS`; `Access-Control-Allow-Headers: accept,authorization,content-type,x-requested-with`. |
+
+Los dos origenes son exclusivamente ficticios de laboratorio y no representan la lista operativa aprobada. Esta captura describe el fallback universal previo; no prescribe status para origenes que luego no sean autorizados ni acredita el cumplimiento del Issue #10.
+
+## Baseline de caracterizacion del Issue #10
+
+Rama `feature/HU01`, revision `88f449b`; todos los comandos se ejecutaron desde la raiz de `workshop-auth-backend` antes de cambios funcionales.
+
+| comando | resultado |
+|---|---|
+| `mvn -Dtest=AuthResourceTest test` | 19 tests aprobados; 0 fallos, errores u omitidos. Cubre respuesta completa, validaciones, espacios, client, errores 401/500, JDBC y salud. |
+| `mvn "-Dtest=AuthServiceTest,PasswordStorageTest,TokenServiceTest" test` | 12 tests aprobados; 0 fallos, errores u omitidos. Cubre coordinacion, hashing/migracion y firma/claims/expiracion. |
+| `mvn "-Dtest=AuthResourceTest" "-Dit.test=AuthProtocolIT" verify` | 19 tests Surefire y 4 tests Failsafe aprobados; 0 fallos, errores u omitidos; `BUILD SUCCESS`. Los errores de protocolo se comprobaron en el empaquetado prod. |
+
+La caracterizacion CORS temporal anterior completo la captura HTTP de login y preflight para dos origenes. No se conserva como test la autorizacion universal; las pruebas de contrato sin `Origin` y la caracterizacion de salud siguen protegiendo el comportamiento fuera del cambio de politica.
+
 ## Codigo de los tests
 
 Fuentes ejecutables completas:
