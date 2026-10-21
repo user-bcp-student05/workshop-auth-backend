@@ -6,7 +6,7 @@ Backend Quarkus que autentica usuarios de laboratorio almacenados en SQLite y en
 
 ## Ejecución
 
-Requisitos: JDK 21 y Maven 3.9+. Para generar una clave de laboratorio con el ejemplo siguiente se necesita OpenSSL; tambien puede proporcionarse un archivo PEM PKCS#8 de prueba ya existente. Maven debe usar JDK 21 mediante JAVA_HOME.
+Requisitos: JDK 25 (LTS) y Maven 3.9+. Para generar una clave de laboratorio con el ejemplo siguiente se necesita OpenSSL; tambien puede proporcionarse un archivo PEM PKCS#8 de prueba ya existente. Maven debe usar JDK 25 mediante JAVA_HOME.
 
 Ejemplo PowerShell, exclusivamente local. La clave generada no se versiona y no debe reutilizarse en otros ambientes:
 
